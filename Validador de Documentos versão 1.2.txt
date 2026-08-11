@@ -1,0 +1,1120 @@
+REPORT Z35validador_doc.
+
+INCLUDE <icon>.
+
+TABLES Z35BD_VAL_DOC. "ZZZZ para zerar a tabela para casos de teste
+
+TYPES:
+  BEGIN OF ty_historico,
+    documento TYPE char18, "CNPJ, com pontos e barra, o máximo valor permitido: 18
+    tipo      TYPE char4,  "CPF ou CNPJ | CNPJA CNOJN (CNPJ antigo, CNPJ novo)
+    status    TYPE char1,  "V para Válido ou I para Inválido
+  END OF ty_historico.
+
+TYPES:
+  BEGIN OF ty_alv,
+    id_historico   TYPE Z35bd_val_doc-id_historico,
+    data_validacao TYPE z35bd_val_doc-data_validacao,
+    hora_validacao TYPE z35bd_val_doc-hora_validacao,
+    documento      TYPE z35bd_val_doc-documento,
+    tipo           TYPE z35bd_val_doc-tipo,
+    resultado      TYPE icon_d,
+  END OF ty_alv.
+
+"DATA gs_documeto TYPE ty_historico.
+
+"Classe para validar CPF e CNPJ
+CLASS lcl_validador DEFINITION. "IMPLEMENTAR MAIS MÉTODOS, DIVIDIR RESPONSABILIDADES
+  PUBLIC SECTION.
+
+    METHODS:
+      validar_cpf
+        IMPORTING iv_cpf  TYPE char18
+        RETURNING VALUE(rv_valido) TYPE abap_bool,
+
+      validar_cnpj
+        IMPORTING iv_cnpj TYPE char18
+        RETURNING VALUE(rv_valido) TYPE abap_bool.
+
+ENDCLASS.
+
+CLASS lcl_validador IMPLEMENTATION.
+
+  METHOD validar_cpf.
+"BREAK-POINT.
+    "Transforma o formato do valor do documento em número puro
+    DATA lv_doc TYPE char14.
+
+    lv_doc = iv_cpf.
+
+    REPLACE ALL OCCURRENCES OF '.' IN lv_doc WITH ''.
+    REPLACE ALL OCCURRENCES OF '-' IN lv_doc WITH ''.
+
+    "Só para garantir que não tem espaços:
+    CONDENSE lv_doc NO-GAPS.
+
+    "Verifica se contém exatamente 11 dígitos
+    IF strlen( lv_doc ) NE 11.
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+    "Verifica se contém apenas números
+    IF lv_doc NA '0123456789'.
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    " *** 1° LÓGICA PENSADA ***
+
+*    "Verifica se todos os números são iguais
+*    IF   lv_doc EQ '00000000000'
+*      OR lv_doc EQ '11111111111'
+*      OR lv_doc EQ '22222222222'
+*      OR lv_doc EQ '33333333333'
+*      OR lv_doc EQ '44444444444'
+*      OR lv_doc EQ '55555555555'
+*      OR lv_doc EQ '66666666666'
+*      OR lv_doc EQ '77777777777'
+*      OR lv_doc EQ '88888888888'
+*      OR lv_doc EQ '99999999999'.
+*        rv_valido = abap_false.
+*        RETURN.
+*    ENDIF.
+*
+*    "Declara cada dígito dos primeiros 9 dígitos do CPF
+*    DATA: n1 TYPE i,
+*          n2 TYPE i,
+*          n3 TYPE i,
+*          n4 TYPE i,
+*          n5 TYPE i,
+*          n6 TYPE i,
+*          n7 TYPE i,
+*          n8 TYPE i,
+*          n9 TYPE i.
+*
+*    "Preenche os valores
+*    n1 = lv_doc+0(1). "começa na posição 0, pega 1 caractere
+*    n2 = lv_doc+1(1).
+*    n3 = lv_doc+2(1).
+*    n4 = lv_doc+3(1).
+*    n5 = lv_doc+4(1).
+*    n6 = lv_doc+5(1).
+*    n7 = lv_doc+6(1).
+*    n8 = lv_doc+7(1).
+*    n9 = lv_doc+8(1).
+*
+*    "Declaração de dígitos verificadores
+*    DATA: soma TYPE i,
+*          dv1  TYPE i,
+*          dv2  TYPE i.
+*
+*    "Calcula o 1º dígito verificador
+*
+*    soma = n1 * 10 +
+*           n2 * 9  +
+*           n3 * 8  +
+*           n4 * 7  +
+*           n5 * 6  +
+*           n6 * 5  +
+*           n7 * 4  +
+*           n8 * 3  +
+*           n9 * 2.
+*
+*    dv1 = 11 - ( soma MOD 11 ).
+*
+*    IF dv1 GT 10.
+*      dv1 = 0.
+*    ENDIF.
+*    IF dv1 NE lv_doc+9(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    "Calcula o 2º dígito verificador
+*
+*    soma = n1  * 11 +
+*           n2  * 10 +
+*           n3  * 9  +
+*           n4  * 8  +
+*           n5  * 7  +
+*           n6  * 6  +
+*           n7  * 5  +
+*           n8  * 4  +
+*           n9  * 3  +
+*           dv1 * 2.
+*
+*    dv2 = 11 - ( soma MOD 11 ).
+*
+*    IF dv2 GT 10.
+*      dv2 = 0.
+*    ENDIF.
+*    IF dv2 NE lv_doc+10(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    "Se tudo estiver correto, o CPF é válido
+*
+*    rv_valido = abap_true.
+
+    " *** FIM DA 1° LÓGICA ***
+
+    " *** CÓDIGO REFATORADO ***
+
+    " Ao observar a primeira lógica pensada, percebemos que a mesma lógica é descrita várias vezes,
+    " sem o uso de estruturas de repetição. Portanto, vamos refatorar:
+
+    "Jeito mais otimizado de verificar se todos os dígitos são iguais:
+    DATA lv_primeiro TYPE c LENGTH 1.
+
+    lv_primeiro = lv_doc+0(1).
+
+    IF lv_doc = repeat(
+      val = lv_primeiro
+      occ = 11 ).
+
+        rv_valido = abap_false.
+        RETURN.
+    ENDIF.
+
+    "Próxima etapa na validação:
+    DATA lt_pesos TYPE STANDARD TABLE OF i.
+
+    "1º passo: criar uma tabela de pesos
+    lt_pesos = VALUE #(
+      ( 10 )
+      (  9 )
+      (  8 )
+      (  7 )
+      (  6 )
+      (  5 )
+      (  4 )
+      (  3 )
+      (  2 )
+    ).
+
+    "2º passo: percorrer os pesos
+    DATA: lv_soma TYPE i,
+          lv_num  TYPE i,
+          lv_char TYPE c LENGTH 1,
+          lv_idx  TYPE i VALUE 0.
+"BREAK-POINT.
+    LOOP AT lt_pesos INTO DATA(lv_peso).
+
+      lv_char = lv_doc+lv_idx(1).
+
+      lv_num = CONV i( lv_char ). "BREAK-POINT.
+
+      lv_soma = lv_soma + ( lv_num * lv_peso ).
+
+      lv_idx = lv_idx + 1.
+
+    ENDLOOP.
+
+    "Calcula o 1° dígito verificador:
+    DATA dv1 TYPE i.
+
+    dv1 = 11 - ( lv_soma MOD 11 ).
+
+    IF dv1 GT 10.
+      dv1 = 0.
+    ENDIF.
+
+    IF dv1 NE lv_doc+9(1).
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    "Outra tabela de pesos:
+    DATA lt_pesos_dv2 TYPE STANDARD TABLE OF i.
+
+    lt_pesos_dv2 = VALUE #(
+      ( 11 )
+      ( 10 )
+      (  9 )
+      (  8 )
+      (  7 )
+      (  6 )
+      (  5 )
+      (  4 )
+      (  3 )
+      (  2 )
+    ).
+
+    "Calcula o 2º dígito verificador:
+    CLEAR lv_soma.
+    lv_idx = 0.
+
+    DATA dv2 TYPE i.
+
+    LOOP AT lt_pesos_dv2 INTO lv_peso.
+
+      IF lv_idx < 9.
+
+        lv_char = lv_doc+lv_idx(1).
+
+        lv_num = CONV i( lv_char ).
+
+      ELSE.
+
+        lv_num = dv1.
+
+      ENDIF.
+
+      lv_soma = lv_soma + ( lv_num * lv_peso ).
+
+      lv_idx  = lv_idx + 1.
+
+    ENDLOOP.
+
+    dv2 = 11 - ( lv_soma MOD 11 ).
+
+    IF dv2 GT 10.
+      dv2 = 0.
+    ENDIF.
+
+    IF dv2 NE lv_doc+10(1).
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    rv_valido = abap_true.
+
+
+
+  ENDMETHOD.
+
+  METHOD validar_cnpj.
+
+    "Transforma o formato do valor do documento em número puro
+    DATA lv_doc TYPE char18.
+
+    lv_doc = iv_cnpj.
+
+    REPLACE ALL OCCURRENCES OF '.' IN lv_doc WITH ''.
+    REPLACE ALL OCCURRENCES OF '-' IN lv_doc WITH ''.
+    REPLACE ALL OCCURRENCES OF '/' IN lv_doc WITH ''.
+
+    IF strlen( lv_doc ) NE 14.
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    "Transforma todas as possíveis letras em maiúsculas
+    TRANSLATE lv_doc TO UPPER CASE.
+
+    "Verifica se contém números e/ou letras
+    IF lv_doc NA '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    " PRIMEIRA LÓGICA PENSADA: (considerando apenas CNPJ numérico)
+
+*    "Verifica se todos os números são iguais
+*    IF   lv_doc EQ '00000000000000'
+*      OR lv_doc EQ '11111111111111'
+*      OR lv_doc EQ '22222222222222'
+*      OR lv_doc EQ '33333333333333'
+*      OR lv_doc EQ '44444444444444'
+*      OR lv_doc EQ '55555555555555'
+*      OR lv_doc EQ '66666666666666'
+*      OR lv_doc EQ '77777777777777'
+*      OR lv_doc EQ '88888888888888'
+*      OR lv_doc EQ '99999999999999'.
+*        rv_valido = abap_false.
+*        RETURN.
+*    ENDIF.
+*
+*    "Declara cada dígito dos primeiros 12 dígitos do CNPJ
+*    DATA: n1  TYPE i,
+*          n2  TYPE i,
+*          n3  TYPE i,
+*          n4  TYPE i,
+*          n5  TYPE i,
+*          n6  TYPE i,
+*          n7  TYPE i,
+*          n8  TYPE i,
+*          n9  TYPE i,
+*          n10 TYPE i,
+*          n11 TYPE i,
+*          n12 TYPE i.
+*
+*    "Preenche os valores
+*    n1  = lv_doc+0(1). "começa na posição 0, pega 1 caractere
+*    n2  = lv_doc+1(1).
+*    n3  = lv_doc+2(1).
+*    n4  = lv_doc+3(1).
+*    n5  = lv_doc+4(1).
+*    n6  = lv_doc+5(1).
+*    n7  = lv_doc+6(1).
+*    n8  = lv_doc+7(1).
+*    n9  = lv_doc+8(1).
+*    n10 = lv_doc+9(1).
+*    n11 = lv_doc+10(1).
+*    n12 = lv_doc+11(1).
+*
+*    "Declaração de dígitos verificadores
+*    DATA: soma  TYPE i,
+*          resto TYPE i,
+*          dv1   TYPE i,
+*          dv2   TYPE i.
+*
+*    "Calcula o 1º dígito verificador
+*
+*    soma = n1  * 5  +
+*           n2  * 4  +
+*           n3  * 3  +
+*           n4  * 2  +
+*           n5  * 9  +
+*           n6  * 8  +
+*           n7  * 7  +
+*           n8  * 6  +
+*           n9  * 5  +
+*           n10 * 4  +
+*           n11 * 3  +
+*           n12 * 2.
+*
+*    resto = soma MOD 11.
+*
+*    IF resto LT 2.
+*      dv1 = 0.
+*    ELSE.
+*      dv1 = 11 - resto.
+*    ENDIF.
+*
+*    IF dv1 NE lv_doc+12(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    "Calcula o 2º dígito verificador
+*
+*    soma = n1  * 6 +
+*           n2  * 5 +
+*           n3  * 4 +
+*           n4  * 3 +
+*           n5  * 2 +
+*           n6  * 9 +
+*           n7  * 8 +
+*           n8  * 7 +
+*           n9  * 6 +
+*           n10 * 5 +
+*           n11 * 4 +
+*           n12 * 3 +
+*           dv1 * 2.
+*
+*    resto = soma MOD 11.
+*
+*    IF resto LT 2.
+*      dv2 = 0.
+*    ELSE.
+*      dv2 = 11 - resto.
+*    ENDIF.
+*
+*    IF dv2 NE lv_doc+13(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    "Se tudo estiver correto, o CNPJ é válido
+*
+*    rv_valido = abap_true.
+
+  " CÓDIGO REFATORADO: (considerando apenas CNPJ numérico)
+
+*    "Verifica se todos os dígitos são iguais:
+*    DATA lv_primeiro TYPE c LENGTH 1.
+*
+*    lv_primeiro = lv_doc+0(1).
+*
+*    IF lv_doc = repeat(
+*      val = lv_primeiro
+*      occ = 14 ).
+*
+*        rv_valido = abap_false.
+*        RETURN.
+*    ENDIF.
+*
+*    "Tabela de pesos
+*    DATA lt_pesos TYPE STANDARD TABLE OF i.
+*
+*    lt_pesos = VALUE #(
+*      ( 5 )
+*      ( 4 )
+*      ( 3 )
+*      ( 2 )
+*      ( 9 )
+*      ( 8 )
+*      ( 7 )
+*      ( 6 )
+*      ( 5 )
+*      ( 4 )
+*      ( 3 )
+*      ( 2 )
+*    ).
+*
+*    "Declaração das próximas variáveis a serem utilizadas
+*    DATA: lv_soma TYPE i,
+*          lv_num  TYPE i,
+*          lv_char TYPE c LENGTH 1,
+*          lv_idx  TYPE i VALUE 0,
+*          resto   TYPE i,
+*          dv1     TYPE i,
+*          dv2     TYPE i.
+*
+*
+*    LOOP AT lt_pesos INTO DATA(lv_peso).
+*
+*      lv_char = lv_doc+lv_idx(1).
+*
+*      lv_num = CONV i( lv_char ).
+*
+*      lv_soma = lv_soma + ( lv_num * lv_peso ).
+*
+*      lv_idx = lv_idx + 1.
+*
+*    ENDLOOP.
+*
+*    "Dígito verificador 1
+*    resto = lv_soma MOD 11.
+*
+*    IF resto LT 2.
+*      dv1 = 0.
+*    ELSE.
+*      dv1 = 11 - resto.
+*    ENDIF.
+*
+*    IF dv1 NE lv_doc+12(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    "Dígito verificador 2
+*
+*    DATA lt_pesos_dv2 TYPE STANDARD TABLE OF i.
+*
+*    lt_pesos_dv2 = VALUE #(
+*      ( 6 )
+*      ( 5 )
+*      ( 4 )
+*      ( 3 )
+*      ( 2 )
+*      ( 9 )
+*      ( 8 )
+*      ( 7 )
+*      ( 6 )
+*      ( 5 )
+*      ( 4 )
+*      ( 3 )
+*      ( 2 )
+*    ).
+*
+*    CLEAR lv_soma.
+*
+*    lv_idx = 0.
+*
+*    LOOP AT lt_pesos_dv2 INTO lv_peso.
+*
+*      IF lv_idx < 12.
+*
+*        lv_char = lv_doc+lv_idx(1).
+*
+*        lv_num = CONV i( lv_char ).
+*
+*      ELSE.
+*
+*        lv_num = dv1.
+*
+*      ENDIF.
+*
+*      lv_soma = lv_soma + ( lv_num * lv_peso ).
+*
+*      lv_idx = lv_idx + 1.
+*
+*    ENDLOOP.
+*
+*    resto = lv_soma MOD 11.
+*
+*    IF resto LT 2.
+*      dv2 = 0.
+*    ELSE.
+*      dv2 = 11 - resto.
+*    ENDIF.
+*
+*    IF dv2 NE lv_doc+13(1).
+*      rv_valido = abap_false.
+*      RETURN.
+*    ENDIF.
+*
+*    rv_valido = abap_true.
+
+    " Depois de analisar o processo de validação do CNPJ alfanumérico,
+    " percebi que tem diferença pequena demais para considerar fazer
+    " cada verificação em um método diferente, sendo que a maior parte
+    " do código seria a mesma e, portanto, haveria muita repetição de código.
+
+    " Por conta disso, resolvi:
+    " . registrar o código usado anteriormente, feito somente para validar CNPJ numérico
+    " . reutilizar o código como está abaixo, mas dessa vez utilizado para validar ambos os tipos de CNPJ
+
+    "Verifica se todos os dígitos são iguais:
+    DATA lv_primeiro TYPE c LENGTH 1.
+
+    lv_primeiro = lv_doc+0(1).
+
+    IF lv_doc = repeat(
+      val = lv_primeiro
+      occ = 14 ).
+
+        rv_valido = abap_false.
+        RETURN.
+    ENDIF.
+
+    "Tabela de pesos
+    DATA lt_pesos TYPE STANDARD TABLE OF i.
+
+    lt_pesos = VALUE #(
+      ( 5 )
+      ( 4 )
+      ( 3 )
+      ( 2 )
+      ( 9 )
+      ( 8 )
+      ( 7 )
+      ( 6 )
+      ( 5 )
+      ( 4 )
+      ( 3 )
+      ( 2 )
+    ).
+
+    "Declaração das próximas variáveis a serem utilizadas
+    DATA: lv_soma  TYPE i,
+          lv_num   TYPE i,
+          lv_char  TYPE c LENGTH 1,
+          lv_idx   TYPE i VALUE 0,
+          resto    TYPE i,
+          dv1      TYPE i,
+          dv2      TYPE i,
+          lv_ascii TYPE i.
+
+    LOOP AT lt_pesos INTO DATA(lv_peso).
+
+      lv_char = lv_doc+lv_idx(1).
+
+      IF lv_char CO '0123456789'.
+
+        lv_num = CONV i( lv_char ).
+
+      ELSE.
+
+        CASE lv_char.
+          WHEN 'A'. lv_num = 17.
+          WHEN 'B'. lv_num = 18.
+          WHEN 'C'. lv_num = 19.
+          WHEN 'D'. lv_num = 20.
+          WHEN 'E'. lv_num = 21.
+          WHEN 'F'. lv_num = 22.
+          WHEN 'G'. lv_num = 23.
+          WHEN 'H'. lv_num = 24.
+          WHEN 'I'. lv_num = 25.
+          WHEN 'J'. lv_num = 26.
+          WHEN 'K'. lv_num = 27.
+          WHEN 'L'. lv_num = 28.
+          WHEN 'M'. lv_num = 29.
+          WHEN 'N'. lv_num = 30.
+          WHEN 'O'. lv_num = 31.
+          WHEN 'P'. lv_num = 32.
+          WHEN 'Q'. lv_num = 33.
+          WHEN 'R'. lv_num = 34.
+          WHEN 'S'. lv_num = 35.
+          WHEN 'T'. lv_num = 36.
+          WHEN 'U'. lv_num = 37.
+          WHEN 'V'. lv_num = 38.
+          WHEN 'W'. lv_num = 39.
+          WHEN 'X'. lv_num = 40.
+          WHEN 'Y'. lv_num = 41.
+          WHEN 'Z'. lv_num = 42.
+
+          WHEN OTHERS.
+            rv_valido = abap_false.
+            RETURN.
+        ENDCASE.
+
+
+        "lv_num = lv_ascii - 48.
+
+      ENDIF.
+
+      lv_soma = lv_soma + ( lv_num * lv_peso ).
+
+      lv_idx = lv_idx + 1.
+
+    ENDLOOP.
+
+    "Dígito verificador 1
+    resto = lv_soma MOD 11.
+
+    IF resto LT 2.
+      dv1 = 0.
+    ELSE.
+      dv1 = 11 - resto.
+    ENDIF.
+
+    IF dv1 NE lv_doc+12(1).
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    "Dígito verificador 2
+
+    DATA lt_pesos_dv2 TYPE STANDARD TABLE OF i.
+
+    lt_pesos_dv2 = VALUE #(
+      ( 6 )
+      ( 5 )
+      ( 4 )
+      ( 3 )
+      ( 2 )
+      ( 9 )
+      ( 8 )
+      ( 7 )
+      ( 6 )
+      ( 5 )
+      ( 4 )
+      ( 3 )
+      ( 2 )
+    ).
+
+    CLEAR lv_soma.
+
+    lv_idx = 0.
+
+    LOOP AT lt_pesos_dv2 INTO lv_peso.
+
+      IF lv_idx < 12.
+
+        lv_char = lv_doc+lv_idx(1).
+
+        IF lv_char CO '0123456789'.
+
+          lv_num = CONV i( lv_char ).
+
+        ELSE.
+
+        CASE lv_char.
+          WHEN 'A'. lv_num = 17.
+          WHEN 'B'. lv_num = 18.
+          WHEN 'C'. lv_num = 19.
+          WHEN 'D'. lv_num = 20.
+          WHEN 'E'. lv_num = 21.
+          WHEN 'F'. lv_num = 22.
+          WHEN 'G'. lv_num = 23.
+          WHEN 'H'. lv_num = 24.
+          WHEN 'I'. lv_num = 25.
+          WHEN 'J'. lv_num = 26.
+          WHEN 'K'. lv_num = 27.
+          WHEN 'L'. lv_num = 28.
+          WHEN 'M'. lv_num = 29.
+          WHEN 'N'. lv_num = 30.
+          WHEN 'O'. lv_num = 31.
+          WHEN 'P'. lv_num = 32.
+          WHEN 'Q'. lv_num = 33.
+          WHEN 'R'. lv_num = 34.
+          WHEN 'S'. lv_num = 35.
+          WHEN 'T'. lv_num = 36.
+          WHEN 'U'. lv_num = 37.
+          WHEN 'V'. lv_num = 38.
+          WHEN 'W'. lv_num = 39.
+          WHEN 'X'. lv_num = 40.
+          WHEN 'Y'. lv_num = 41.
+          WHEN 'Z'. lv_num = 42.
+
+          WHEN OTHERS.
+            rv_valido = abap_false.
+            RETURN.
+        ENDCASE.
+
+        ENDIF.
+
+      ELSE.
+
+        lv_num = dv1.
+
+      ENDIF.
+
+      lv_soma = lv_soma + ( lv_num * lv_peso ).
+
+      lv_idx = lv_idx + 1.
+
+    ENDLOOP.
+
+    resto = lv_soma MOD 11.
+
+    IF resto LT 2.
+      dv2 = 0.
+    ELSE.
+      dv2 = 11 - resto.
+    ENDIF.
+
+    IF dv2 NE lv_doc+13(1).
+      rv_valido = abap_false.
+      RETURN.
+    ENDIF.
+
+    rv_valido = abap_true.
+
+  ENDMETHOD.
+
+*  METHOD converter_numerico.
+*    lv_num
+*  ENDMETHOD.
+
+ENDCLASS.
+
+"Classe de histórico
+CLASS lcl_historico DEFINITION.
+  PUBLIC SECTION.
+    METHODS salvar
+
+      IMPORTING
+
+        iv_documento TYPE char18
+        iv_tipo      TYPE char4
+        iv_status    TYPE char1.
+
+    METHODS mostrar.
+
+ENDCLASS.
+
+CLASS lcl_historico IMPLEMENTATION.
+  METHOD salvar.
+
+    "Gera ID de forma automática:
+    DATA lv_number TYPE z35bd_val_doc-id_historico.
+"BREAK-POINT.
+    CALL FUNCTION 'NUMBER_GET_NEXT'
+      EXPORTING
+        nr_range_nr = '01'
+        object      = 'ZDOCVAL' "Nome do objeto de intervalo que criei na SNRO
+      IMPORTING
+        number = lv_number
+      EXCEPTIONS
+        interval_not_found      = 1
+        number_range_not_intern = 2
+        object_not_found        = 3
+        quantity_is_0           = 4
+        quantity_is_not_1       = 5
+        interval_overflow       = 6
+        buffer_overflow         = 7
+        OTHERS                  = 8.
+
+    "Verifica se o ID foi gerado
+    IF sy-subrc = 0.
+      MESSAGE |Número gerado: { lv_number }| TYPE 'S'.
+    ELSE.
+      MESSAGE |Erro em gerar número ( { sy-subrc } )| TYPE 'S' DISPLAY LIKE 'E'.
+    ENDIF.
+
+    "Declaração da workarea que vai ser usada para salvar os valores dos campos
+    DATA ls_historico TYPE z35bd_val_doc.
+
+    "Preenche os campos - inclusive com o ID gerado
+    ls_historico-id_historico   = lv_number.
+    ls_historico-data_validacao = sy-datum.
+    ls_historico-hora_validacao = sy-uzeit.
+    ls_historico-documento      = iv_documento.
+    ls_historico-tipo           = iv_tipo.
+    ls_historico-status_doc     = iv_status.
+
+    "Grava no banco de dados
+    INSERT INTO z35bd_val_doc
+      VALUES ls_historico.
+
+    "Verifica se deu certo a gravação no banco de dados
+    IF sy-subrc <> 0.
+      ROLLBACK WORK. "Cancela todas as instruções OpenSQL que modificam dados
+      MESSAGE 'Erro ao gravar a verificação no histórico.' TYPE 'S'.
+      RETURN. "Sai do método imediatamente
+    ENDIF.
+
+    "Feedback ao usuário
+    COMMIT WORK. "Confirma todas as laterações na base de dados
+    MESSAGE 'A verificação foi salva no histórico com sucesso.' TYPE 'S'.
+
+  ENDMETHOD.
+
+  METHOD mostrar.
+
+    "Buscar os registros
+    DATA: gt_historico TYPE TABLE OF ty_alv,
+          gt_zdoc TYPE TABLE OF z35bd_val_doc. "tabela auxiliar
+
+    "Ler o banco
+    SELECT *
+      FROM z35bd_val_doc
+      INTO TABLE @gt_zdoc
+      ORDER BY PRIMARY KEY.
+
+    DATA ls_alv TYPE ty_alv.
+
+    LOOP AT gt_zdoc INTO DATA(ls_zdoc).
+
+      CLEAR ls_alv.
+
+      ls_alv-id_historico = ls_zdoc-id_historico.
+      ls_alv-data_validacao = ls_zdoc-data_validacao.
+      ls_alv-hora_validacao = ls_zdoc-hora_validacao.
+      ls_alv-documento = ls_zdoc-documento.
+      ls_alv-tipo = ls_zdoc-tipo.
+
+      IF ls_zdoc-status_doc = 'V'.
+        ls_alv-resultado = icon_green_light.
+      ELSE.
+        ls_alv-resultado = icon_red_light.
+      ENDIF.
+
+      APPEND ls_alv TO gt_historico.
+
+    ENDLOOP.
+
+    "Criar o ALV
+    DATA lo_alv TYPE REF TO cl_salv_table.
+
+    TRY.
+      cl_salv_table=>factory(
+        IMPORTING
+          r_salv_table = lo_alv
+        CHANGING
+          t_table      = gt_historico
+      ).
+    CATCH cx_salv_msg INTO DATA(lx_salv).
+       MESSAGE lx_salv->get_text( ) TYPE 'E'.
+    ENDTRY.
+
+    "Para não exibir o campo mandante
+    DATA: lo_columns TYPE REF TO cl_salv_columns_table,
+          lo_column  TYPE REF TO cl_salv_column_table.
+
+    lo_columns = lo_alv->get_columns( ).
+
+
+
+    TRY.
+      lo_column ?= lo_columns->get_column( 'MANDT' ).
+
+      lo_column->set_visible( abap_false ).
+
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    "Para definir a largura de cada coluna da tabela na ALV:
+    TRY.
+      lo_column ?= lo_columns->get_column( 'ID_HISTORICO' ).
+      lo_column->set_short_text( 'ID' ).
+      lo_column->set_medium_text( 'ID' ).
+      lo_column->set_long_text( 'ID da Validação' ).
+      lo_column->set_output_length( 6 ).
+
+      lo_column ?= lo_columns->get_column( 'DATA_VALIDACAO' ).
+      lo_column->set_short_text( 'Data' ).
+      lo_column->set_medium_text( 'Data' ).
+      lo_column->set_long_text( 'Data da Validação' ).
+      lo_column->set_output_length( 14 ).
+
+      lo_column ?= lo_columns->get_column( 'HORA_VALIDACAO' ).
+      lo_column->set_short_text( 'Hora' ).
+      lo_column->set_medium_text( 'Hora' ).
+      lo_column->set_long_text( 'Hora da Validação' ).
+      lo_column->set_output_length( 14 ).
+
+      lo_column ?= lo_columns->get_column( 'DOCUMENTO' ).
+      lo_column->set_short_text( 'Documento' ).
+      lo_column->set_medium_text( 'Documento' ).
+      lo_column->set_long_text( 'Documento' ).
+      lo_column->set_output_length( 20 ).
+
+      lo_column ?= lo_columns->get_column( 'TIPO' ).
+      lo_column->set_short_text( 'CPF/CNPJ' ).
+      lo_column->set_medium_text( 'CPF/CNPJ' ).
+      lo_column->set_long_text( 'CPF/CNPJ' ).
+      lo_column->set_output_length(  8 ).
+
+      lo_column ?= lo_columns->get_column( 'RESULTADO' ).
+      lo_column->set_icon( if_salv_c_bool_sap=>true ).
+      lo_column->set_short_text( 'Resultado' ).
+      lo_column->set_medium_text( 'Resultado' ).
+      lo_column->set_long_text( 'Resultado' ).
+      lo_column->set_output_length( 8 ).
+
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    "Para definir o tamanho da janela popup
+    lo_alv->set_screen_popup(
+      start_column = 31
+      end_column   = 101
+      start_line   = 1
+      end_line     = 15
+    ).
+
+    lo_alv->get_display_settings(
+    )->set_list_header(
+      'Histórico de validações' ).
+
+    "Para adicionar tooltips - informação ao passar o ponteiro do mouse
+    DATA: lo_tooltips TYPE REF TO cl_salv_tooltips,
+          lv_value    TYPE lvc_value. "variável intermediária
+
+    lo_tooltips = lo_alv->get_functional_settings( )->get_tooltips( ).
+
+    TRY.
+      lv_value = icon_green_light.
+
+      lo_tooltips->add_tooltip(
+        type    = cl_salv_tooltip=>c_type_icon
+        value   = lv_value
+        tooltip = 'Documento válido'
+      ).
+
+      lv_value = icon_red_light.
+
+      lo_tooltips->add_tooltip(
+        type    = cl_salv_tooltip=>c_type_icon
+        value   = lv_value
+        tooltip = 'Documento inválido'
+      ).
+    CATCH
+      cx_salv_existing.
+    ENDTRY.
+
+    lo_alv->display( ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+"Classe principal da aplicação
+CLASS lcl_app DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+      validar_documento
+        IMPORTING
+          iv_documento TYPE char18
+          iv_cpf       TYPE abap_bool,
+
+      mostrar_historico.
+ENDCLASS.
+
+CLASS lcl_app IMPLEMENTATION.
+
+  METHOD validar_documento.
+
+    DATA: lo_validador TYPE REF TO lcl_validador,
+          lv_valido    TYPE abap_bool,
+          lo_historico TYPE REF TO lcl_historico,
+          lv_tipo      TYPE char4,
+          lv_status    TYPE char1.
+
+    CREATE OBJECT lo_validador.
+    CREATE OBJECT lo_historico.
+
+*    IF iv_cpf EQ 'X'.
+*      lv_valido = lo_validador->validar_cpf(  iv_documento ).
+*    ELSE.
+*      lv_valido = lo_validador->validar_cnpj( iv_documento ).
+*    ENDIF.
+
+    IF iv_cpf EQ abap_true.
+
+      lv_tipo = 'CPF'.
+
+      lv_valido = lo_validador->validar_cpf( iv_documento ).
+
+    ELSE.
+
+      lv_tipo = 'CNPJ'.
+
+      "Se contiver apenas números e caracteres de formatação
+      "IF iv_documento CO '0123456789./-'.
+
+      "Se contiver apenas números e/ou letras e caracteres de formatação
+      "IF iv_documento CO '0123456789./-ABCDEFGHIJKLMNOPQRSTUVWXYZ'.
+        lv_valido = lo_validador->validar_cnpj( iv_documento ).
+      "ENDIF.
+
+      "CO = Contém Somente
+
+    ENDIF.
+
+*    IF lv_valido = abap_true.
+*      MESSAGE 'Documento válido'   TYPE 'I'.
+*    ELSE.
+*      MESSAGE 'Documento inválido' TYPE 'I'.
+*    ENDIF.
+
+    IF lv_valido = abap_true.
+
+      lv_status = 'V'.
+      MESSAGE 'Documento válido.' TYPE 'I'.
+
+    ELSE.
+
+      lv_status = 'I'.
+      MESSAGE 'Documento inválido.' TYPE 'I'.
+
+    ENDIF.
+
+    lo_historico->salvar(
+      iv_documento = iv_documento
+      iv_tipo      = lv_tipo
+      iv_status    = lv_status ).
+
+  ENDMETHOD.
+
+  METHOD mostrar_historico.
+
+    DATA lo_historico TYPE REF TO lcl_historico.
+
+    CREATE OBJECT lo_historico.
+
+    lo_historico->mostrar( ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+DATA go_app TYPE REF TO lcl_app.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS: p_doc  TYPE c LENGTH 18,
+              p_cpf  RADIOBUTTON GROUP g DEFAULT 'X',
+              p_cnpj RADIOBUTTON GROUP g.
+SELECTION-SCREEN END   OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF LINE.
+  SELECTION-SCREEN PUSHBUTTON 10(22) bt_val USER-COMMAND valid.
+SELECTION-SCREEN END   OF LINE.
+
+SELECTION-SCREEN BEGIN OF LINE.
+  SELECTION-SCREEN PUSHBUTTON 10(22) bt_his USER-COMMAND histo.
+SELECTION-SCREEN END   OF LINE.
+
+AT SELECTION-SCREEN OUTPUT.
+  bt_val = 'Verificar validação'.
+  bt_his = 'Histórico de validação'.
+
+INITIALIZATION.
+  CREATE OBJECT go_app.
+
+AT SELECTION-SCREEN.
+  CASE sy-ucomm.
+    WHEN 'VALID'.
+      go_app->validar_documento(
+        iv_documento = p_doc
+        iv_cpf       = p_cpf   ).
+      CLEAR p_doc.
+    WHEN 'HISTO'.
+      go_app->mostrar_historico( ).
+  ENDCASE.
